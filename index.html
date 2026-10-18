@@ -4,80 +4,85 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clock TV</title>
-
+<title>Clock Overlay</title>
 <style>
-* {
-    box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html, body {
     margin: 0;
-    padding: 0;
     width: 100%;
     height: 100%;
     overflow: hidden;
     background: #000;
+}
+
+body {
     font-family: Arial, Helvetica, sans-serif;
+    background: #000;
 }
 
 #background {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
     object-fit: contain;
-    z-index: 1;
+    object-position: center;
+    z-index: 0;
 }
 
-#clock {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 2;
-    pointer-events: none;
+canvas {
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+    background: transparent;
 }
 </style>
 </head>
-
 <body>
+
 <img id="background" src="background.png" alt="">
 <canvas id="clock"></canvas>
 
 <script type="text/javascript">
 (function () {
     var canvas = document.getElementById("clock");
-    var ctx = null;
+    var ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
+    if (!ctx) { return; }
 
-    try {
-        ctx = canvas.getContext("2d");
-    } catch (e) {
-        return;
-    }
+    var W = 0, H = 0, dpr = 1;
+    var DESIGN_W = 2048, DESIGN_H = 990;
 
-    if (!ctx) {
-        return;
-    }
-
-    var W = 1280;
-    var H = 720;
-    var DESIGN_W = 2048;
-    var DESIGN_H = 990;
+    var raf = window.requestAnimationFrame ||
+        window.webkitRequestAnimationFrame ||
+        function (fn) {
+            return window.setTimeout(fn, 1000 / 30);
+        };
 
     function resize() {
-        W = window.innerWidth || 1280;
-        H = window.innerHeight || 720;
+        W = window.innerWidth ||
+            document.documentElement.clientWidth || 1280;
+        H = window.innerHeight ||
+            document.documentElement.clientHeight || 720;
 
-        canvas.width = W;
-        canvas.height = H;
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
         canvas.style.width = W + "px";
         canvas.style.height = H + "px";
+
+        if (ctx.setTransform) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        } else {
+            ctx.scale(dpr, dpr);
+        }
     }
 
-    function drawLine(x1, y1, x2, y2, width, color) {
+    function line(x1, y1, x2, y2, width, color) {
         ctx.beginPath();
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
@@ -87,20 +92,68 @@ html, body {
         ctx.stroke();
     }
 
-    function drawHand(value, length, tail, width, color, cx, cy) {
-        var angle = value * Math.PI / 30 - Math.PI / 2;
+    function drawCenterInfo(now) {
+        var days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+        var h = now.getHours();
+        var m = now.getMinutes();
+        var suffix = h >= 12 ? "PM" : "AM";
+        var displayH = h % 12 || 12;
+        var mm = m < 10 ? "0" + m : "" + m;
 
-        drawLine(
-            cx - Math.cos(angle) * tail,
-            cy - Math.sin(angle) * tail,
-            cx + Math.cos(angle) * length,
-            cy + Math.sin(angle) * length,
-            width,
-            color
-        );
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "left";
+
+        /* Digital time — icon removed */
+        ctx.font = "43px Arial, Helvetica, sans-serif";
+        ctx.fillStyle = "#f2f2f2";
+        ctx.fillText(displayH + ":" + mm + suffix, 610, 495);
+
+        /* Day */
+        ctx.font = "700 43px Arial, Helvetica, sans-serif";
+        ctx.fillStyle = "#55aaff";
+        ctx.fillText(days[now.getDay()], 1260, 495);
+
+        /* Date */
+        ctx.font = "43px Arial, Helvetica, sans-serif";
+        ctx.fillStyle = "#f2f2f2";
+        ctx.fillText("" + now.getDate(), 1378, 495);
     }
 
-    function drawClock() {
+    function drawHands(now) {
+        var cx = 1024, cy = 495;
+        var sec = now.getSeconds() + now.getMilliseconds() / 1000;
+        var min = now.getMinutes() + sec / 60;
+        var hour = (now.getHours() % 12) + min / 60;
+
+        function hand(value60, length, tail, width, color) {
+            var angle = value60 * Math.PI * 2 / 60 - Math.PI / 2;
+
+            line(
+                cx - Math.cos(angle) * tail,
+                cy - Math.sin(angle) * tail,
+                cx + Math.cos(angle) * length,
+                cy + Math.sin(angle) * length,
+                width,
+                color
+            );
+        }
+
+        hand(hour * 5, 160, 14, 25, "#f5f5f5");
+        hand(min, 275, 14, 19, "#f5f5f5");
+        hand(sec, 405, 60, 4, "#55aaff");
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 17, 0, Math.PI * 2);
+        ctx.fillStyle = "#55aaff";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+        ctx.fillStyle = "#111";
+        ctx.fill();
+    }
+
+    function render() {
         ctx.clearRect(0, 0, W, H);
 
         var scale = Math.min(W / DESIGN_W, H / DESIGN_H);
@@ -112,63 +165,11 @@ html, body {
         ctx.scale(scale, scale);
 
         var now = new Date();
-        var sec = now.getSeconds();
-        var min = now.getMinutes() + sec / 60;
-        var hour = (now.getHours() % 12) + min / 60;
-
-        var cx = 1024;
-        var cy = 495;
-
-        drawHand(hour * 5, 160, 14, 25, "#f5f5f5", cx, cy);
-        drawHand(min, 275, 14, 19, "#f5f5f5", cx, cy);
-        drawHand(sec, 405, 60, 4, "#55aaff", cx, cy);
-
-        ctx.beginPath();
-        ctx.arc(cx, cy, 17, 0, Math.PI * 2);
-        ctx.fillStyle = "#55aaff";
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-        ctx.fillStyle = "#111111";
-        ctx.fill();
-
-        var days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-        var h = now.getHours();
-        var displayH = h % 12;
-        if (displayH === 0) {
-            displayH = 12;
-        }
-
-        var mm = now.getMinutes();
-        var minuteText = mm < 10 ? "0" + mm : "" + mm;
-        var suffix = h >= 12 ? "PM" : "AM";
-
-        ctx.textBaseline = "middle";
-        ctx.textAlign = "left";
-
-        ctx.font = "bold 43px Arial";
-        ctx.fillStyle = "#55aaff";
-        ctx.fillText("◷", 610, 495);
-
-        ctx.font = "43px Arial";
-        ctx.fillStyle = "#f2f2f2";
-        ctx.fillText(displayH + ":" + minuteText + suffix, 675, 495);
-
-        ctx.font = "bold 43px Arial";
-        ctx.fillStyle = "#55aaff";
-        ctx.fillText(days[now.getDay()], 1260, 495);
-
-        ctx.font = "43px Arial";
-        ctx.fillStyle = "#f2f2f2";
-        ctx.fillText("" + now.getDate(), 1378, 495);
+        drawHands(now);
+        drawCenterInfo(now);
 
         ctx.restore();
-    }
-
-    function loop() {
-        drawClock();
-        window.setTimeout(loop, 1000);
+        raf(render);
     }
 
     if (window.addEventListener) {
@@ -178,7 +179,20 @@ html, body {
     }
 
     resize();
-    loop();
+    render();
+
+    if (document.addEventListener) {
+        document.addEventListener("dblclick", function () {
+            var el = document.documentElement;
+            var fn = el.requestFullscreen ||
+                el.webkitRequestFullscreen ||
+                el.msRequestFullscreen;
+
+            if (fn) {
+                try { fn.call(el); } catch (e) {}
+            }
+        }, false);
+    }
 }());
 </script>
 </body>
