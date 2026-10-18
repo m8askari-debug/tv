@@ -1,73 +1,92 @@
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fa">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clock Overlay</title>
+<title>Tehran Clock</title>
 <style>
 * { box-sizing: border-box; }
-
 html, body {
-    margin: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    background: #000;
+    margin: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #000;
 }
-
-body {
-    font-family: Arial, Helvetica, sans-serif;
-    background: #000;
-}
-
 #background {
-    position: fixed;
-    inset: 0;
-    width: 100vw;
-    height: 100vh;
-    object-fit: contain;
-    object-position: center;
-    z-index: 0;
+    position: fixed; inset: 0;
+    width: 100vw; height: 100vh;
+    object-fit: contain; z-index: 0;
 }
-
 canvas {
-    position: fixed;
-    inset: 0;
-    display: block;
-    width: 100vw;
-    height: 100vh;
-    z-index: 1;
-    background: transparent;
+    position: fixed; inset: 0;
+    display: block; width: 100vw; height: 100vh;
+    z-index: 1; background: transparent;
 }
 </style>
 </head>
 <body>
-
 <img id="background" src="background.png" alt="">
 <canvas id="clock"></canvas>
 
-<script type="text/javascript">
+<script>
 (function () {
     var canvas = document.getElementById("clock");
-    var ctx = canvas && canvas.getContext ? canvas.getContext("2d") : null;
-    if (!ctx) { return; }
-
+    var ctx = canvas.getContext("2d");
     var W = 0, H = 0, dpr = 1;
     var DESIGN_W = 2048, DESIGN_H = 990;
 
-    var raf = window.requestAnimationFrame ||
-        window.webkitRequestAnimationFrame ||
-        function (fn) {
-            return window.setTimeout(fn, 1000 / 30);
+    var timeBase = Date.now();
+    var syncBase = Date.now();
+    var tehranOffset = 12600000; // fallback: UTC+03:30
+    var onlineSynced = false;
+
+    function getTehranNow() {
+        return new Date(timeBase + (Date.now() - syncBase) + tehranOffset);
+    }
+
+    function syncTime() {
+        var started = Date.now();
+        var xhr = new XMLHttpRequest();
+        xhr.open(
+            "GET",
+            "https://worldtime.timezone.io/api/timezone/Asia/Tehran",
+            true
+        );
+        xhr.timeout = 8000;
+
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) return;
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    var serverEpoch = Number(data.unixtime) * 1000;
+                    var offsetText = data.utc_offset || "+03:30";
+                    var sign = offsetText.charAt(0) === "-" ? -1 : 1;
+                    var parts = offsetText.substring(1).split(":");
+                    var offsetMinutes =
+                        (parseInt(parts[0], 10) * 60) +
+                        parseInt(parts[1], 10);
+
+                    if (serverEpoch > 0 && isFinite(offsetMinutes)) {
+                        var finished = Date.now();
+                        timeBase = serverEpoch + (finished - started) / 2;
+                        syncBase = finished;
+                        tehranOffset = sign * offsetMinutes * 60000;
+                        onlineSynced = true;
+                    }
+                } catch (e) {}
+            }
         };
 
-    function resize() {
-        W = window.innerWidth ||
-            document.documentElement.clientWidth || 1280;
-        H = window.innerHeight ||
-            document.documentElement.clientHeight || 720;
+        xhr.onerror = function () {};
+        xhr.ontimeout = function () {};
 
+        try { xhr.send(); } catch (e) {}
+    }
+
+    function resize() {
+        W = window.innerWidth || 1280;
+        H = window.innerHeight || 720;
         dpr = Math.min(window.devicePixelRatio || 1, 2);
 
         canvas.width = Math.round(W * dpr);
@@ -75,11 +94,7 @@ canvas {
         canvas.style.width = W + "px";
         canvas.style.height = H + "px";
 
-        if (ctx.setTransform) {
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        } else {
-            ctx.scale(dpr, dpr);
-        }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     function line(x1, y1, x2, y2, width, color) {
@@ -92,49 +107,20 @@ canvas {
         ctx.stroke();
     }
 
-    function drawCenterInfo(now) {
-        var days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-        var h = now.getHours();
-        var m = now.getMinutes();
-        var suffix = h >= 12 ? "PM" : "AM";
-        var displayH = h % 12 || 12;
-        var mm = m < 10 ? "0" + m : "" + m;
-
-        ctx.textBaseline = "middle";
-        ctx.textAlign = "left";
-
-        /* Digital time — icon removed */
-        ctx.font = "43px Arial, Helvetica, sans-serif";
-        ctx.fillStyle = "#f2f2f2";
-        ctx.fillText(displayH + ":" + mm + suffix, 610, 495);
-
-        /* Day */
-        ctx.font = "700 43px Arial, Helvetica, sans-serif";
-        ctx.fillStyle = "#55aaff";
-        ctx.fillText(days[now.getDay()], 1260, 495);
-
-        /* Date */
-        ctx.font = "43px Arial, Helvetica, sans-serif";
-        ctx.fillStyle = "#f2f2f2";
-        ctx.fillText("" + now.getDate(), 1378, 495);
-    }
-
     function drawHands(now) {
         var cx = 1024, cy = 495;
-        var sec = now.getSeconds() + now.getMilliseconds() / 1000;
-        var min = now.getMinutes() + sec / 60;
-        var hour = (now.getHours() % 12) + min / 60;
+        var sec = now.getUTCSeconds() + now.getUTCMilliseconds() / 1000;
+        var min = now.getUTCMinutes() + sec / 60;
+        var hour = (now.getUTCHours() % 12) + min / 60;
 
         function hand(value60, length, tail, width, color) {
             var angle = value60 * Math.PI * 2 / 60 - Math.PI / 2;
-
             line(
                 cx - Math.cos(angle) * tail,
                 cy - Math.sin(angle) * tail,
                 cx + Math.cos(angle) * length,
                 cy + Math.sin(angle) * length,
-                width,
-                color
+                width, color
             );
         }
 
@@ -153,6 +139,31 @@ canvas {
         ctx.fill();
     }
 
+    function drawCenterInfo(now) {
+        var days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+        var h = now.getUTCHours();
+        var m = now.getUTCMinutes();
+        var suffix = h >= 12 ? "PM" : "AM";
+        var displayH = h % 12 || 12;
+        var mm = m < 10 ? "0" + m : "" + m;
+
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "left";
+
+        /* Digital clock — no extra icon */
+        ctx.font = "43px Arial, Helvetica, sans-serif";
+        ctx.fillStyle = "#f2f2f2";
+        ctx.fillText(displayH + ":" + mm + suffix, 610, 495);
+
+        ctx.font = "700 43px Arial, Helvetica, sans-serif";
+        ctx.fillStyle = "#55aaff";
+        ctx.fillText(days[now.getUTCDay()], 1260, 495);
+
+        ctx.font = "43px Arial, Helvetica, sans-serif";
+        ctx.fillStyle = "#f2f2f2";
+        ctx.fillText("" + now.getUTCDate(), 1378, 495);
+    }
+
     function render() {
         ctx.clearRect(0, 0, W, H);
 
@@ -164,35 +175,33 @@ canvas {
         ctx.translate(ox, oy);
         ctx.scale(scale, scale);
 
-        var now = new Date();
+        var now = getTehranNow();
         drawHands(now);
         drawCenterInfo(now);
 
         ctx.restore();
-        raf(render);
+
+        var raf = window.requestAnimationFrame ||
+                  window.webkitRequestAnimationFrame;
+        if (raf) raf(render);
+        else window.setTimeout(render, 33);
     }
 
-    if (window.addEventListener) {
-        window.addEventListener("resize", resize, false);
-    } else {
-        window.onresize = resize;
-    }
-
+    window.addEventListener("resize", resize, false);
     resize();
+    syncTime();
+    window.setInterval(syncTime, 60000);
     render();
 
-    if (document.addEventListener) {
-        document.addEventListener("dblclick", function () {
-            var el = document.documentElement;
-            var fn = el.requestFullscreen ||
-                el.webkitRequestFullscreen ||
-                el.msRequestFullscreen;
-
-            if (fn) {
-                try { fn.call(el); } catch (e) {}
-            }
-        }, false);
-    }
+    document.addEventListener("dblclick", function () {
+        var el = document.documentElement;
+        var fn = el.requestFullscreen ||
+                 el.webkitRequestFullscreen ||
+                 el.msRequestFullscreen;
+        if (fn) {
+            try { fn.call(el); } catch (e) {}
+        }
+    }, false);
 }());
 </script>
 </body>
