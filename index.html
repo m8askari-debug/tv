@@ -9,8 +9,8 @@
 <style>
 @font-face {
     font-family: "Pinar";
-    src: url("Pinar-ExtraBold.ttf") format("truetype");
-    font-weight: 800;
+    src: url("Pinar-Bold.ttf") format("truetype");
+    font-weight: 700;
     font-style: normal;
 }
 
@@ -60,6 +60,9 @@ canvas {
     var syncBase = Date.now();
     var tehranOffset = 12600000;
     var onlineSynced = false;
+    var syncInProgress = false;
+    var retryDelay = 15000;
+    var syncTimer = null;
 
     function getTehranNow() {
         return new Date(
@@ -67,19 +70,44 @@ canvas {
         );
     }
 
+    function scheduleSync(delay) {
+        if (syncTimer !== null) {
+            clearTimeout(syncTimer);
+        }
+
+        syncTimer = setTimeout(syncTime, delay);
+    }
+
     function syncTime() {
+        if (syncInProgress) return;
+
+        syncInProgress = true;
         var started = Date.now();
+        var completed = false;
         var xhr = new XMLHttpRequest();
+
+        function finish(success) {
+            if (completed) return;
+            completed = true;
+            syncInProgress = false;
+
+            if (success) {
+                scheduleSync(60000);
+            } else {
+                scheduleSync(retryDelay);
+            }
+        }
 
         xhr.open(
             "GET",
             "https://worldtime.timezone.io/api/timezone/Asia/Tehran",
             true
         );
+
         xhr.timeout = 8000;
 
         xhr.onreadystatechange = function () {
-            if (xhr.readyState !== 4) return;
+            if (xhr.readyState !== 4 || completed) return;
 
             if (xhr.status >= 200 && xhr.status < 300) {
                 try {
@@ -89,28 +117,44 @@ canvas {
                     var sign = offsetText.charAt(0) === "-" ? -1 : 1;
                     var parts = offsetText.substring(1).split(":");
 
-                    var offsetMinutes =
-                        parseInt(parts[0], 10) * 60 +
-                        parseInt(parts[1], 10);
+                    var offsetHours = parseInt(parts[0], 10);
+                    var offsetMins = parseInt(parts[1], 10);
+                    var offsetMinutes = offsetHours * 60 + offsetMins;
 
-                    if (serverEpoch > 0 && isFinite(offsetMinutes)) {
+                    if (
+                        serverEpoch > 0 &&
+                        isFinite(offsetMinutes) &&
+                        parts.length === 2
+                    ) {
                         var finished = Date.now();
 
                         timeBase = serverEpoch + (finished - started) / 2;
                         syncBase = finished;
                         tehranOffset = sign * offsetMinutes * 60000;
                         onlineSynced = true;
+
+                        finish(true);
+                        return;
                     }
                 } catch (e) {}
             }
+
+            finish(false);
         };
 
-        xhr.onerror = function () {};
-        xhr.ontimeout = function () {};
+        xhr.onerror = function () {
+            finish(false);
+        };
+
+        xhr.ontimeout = function () {
+            finish(false);
+        };
 
         try {
             xhr.send();
-        } catch (e) {}
+        } catch (e) {
+            finish(false);
+        }
     }
 
     function resize() {
@@ -250,18 +294,18 @@ canvas {
         ctx.textBaseline = "middle";
         ctx.textAlign = "left";
 
-        /* Digital clock */
-        ctx.font = '800 43px "Pinar", Arial, sans-serif';
+        /* Digital clock — Pinar Bold */
+        ctx.font = '700 43px "Pinar", Arial, sans-serif';
         ctx.fillStyle = "#f2f2f2";
         ctx.fillText(displayH + ":" + mm + suffix, 610, 495);
 
-        /* Weekday — blue and bold */
-        ctx.font = '800 34px "Pinar", Arial, sans-serif';
+        /* Weekday — blue, Pinar Bold */
+        ctx.font = '700 34px "Pinar", Arial, sans-serif';
         ctx.fillStyle = "#55aaff";
         ctx.fillText(weekday, 1210, 495);
 
-        /* Persian date — white, with a little extra spacing */
-        ctx.font = '800 36px "Pinar", Tahoma, sans-serif';
+        /* Persian date — white, with spacing */
+        ctx.font = '700 36px "Pinar", Tahoma, sans-serif';
         ctx.fillStyle = "#f2f2f2";
         ctx.fillText(dateText, 1310, 495);
     }
@@ -295,7 +339,6 @@ canvas {
 
     resize();
     syncTime();
-    window.setInterval(syncTime, 60000);
     render();
 
     document.addEventListener("dblclick", function () {
