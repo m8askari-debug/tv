@@ -5,24 +5,46 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tehran Clock</title>
+
 <style>
+@font-face {
+    font-family: "Pinar";
+    src: url("Pinar-ExtraBold.ttf") format("truetype");
+    font-weight: 800;
+    font-style: normal;
+}
+
 * { box-sizing: border-box; }
+
 html, body {
-    margin: 0; width: 100%; height: 100%;
-    overflow: hidden; background: #000;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
 }
+
 #background {
-    position: fixed; inset: 0;
-    width: 100vw; height: 100vh;
-    object-fit: contain; z-index: 0;
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: contain;
+    z-index: 0;
 }
+
 canvas {
-    position: fixed; inset: 0;
-    display: block; width: 100vw; height: 100vh;
-    z-index: 1; background: transparent;
+    position: fixed;
+    inset: 0;
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+    background: transparent;
 }
 </style>
 </head>
+
 <body>
 <img id="background" src="background.png" alt="">
 <canvas id="clock"></canvas>
@@ -36,16 +58,19 @@ canvas {
 
     var timeBase = Date.now();
     var syncBase = Date.now();
-    var tehranOffset = 12600000; // fallback: UTC+03:30
+    var tehranOffset = 12600000;
     var onlineSynced = false;
 
     function getTehranNow() {
-        return new Date(timeBase + (Date.now() - syncBase) + tehranOffset);
+        return new Date(
+            timeBase + (Date.now() - syncBase) + tehranOffset
+        );
     }
 
     function syncTime() {
         var started = Date.now();
         var xhr = new XMLHttpRequest();
+
         xhr.open(
             "GET",
             "https://worldtime.timezone.io/api/timezone/Asia/Tehran",
@@ -63,12 +88,14 @@ canvas {
                     var offsetText = data.utc_offset || "+03:30";
                     var sign = offsetText.charAt(0) === "-" ? -1 : 1;
                     var parts = offsetText.substring(1).split(":");
+
                     var offsetMinutes =
-                        (parseInt(parts[0], 10) * 60) +
+                        parseInt(parts[0], 10) * 60 +
                         parseInt(parts[1], 10);
 
                     if (serverEpoch > 0 && isFinite(offsetMinutes)) {
                         var finished = Date.now();
+
                         timeBase = serverEpoch + (finished - started) / 2;
                         syncBase = finished;
                         tehranOffset = sign * offsetMinutes * 60000;
@@ -81,7 +108,9 @@ canvas {
         xhr.onerror = function () {};
         xhr.ontimeout = function () {};
 
-        try { xhr.send(); } catch (e) {}
+        try {
+            xhr.send();
+        } catch (e) {}
     }
 
     function resize() {
@@ -109,18 +138,23 @@ canvas {
 
     function drawHands(now) {
         var cx = 1024, cy = 495;
-        var sec = now.getUTCSeconds() + now.getUTCMilliseconds() / 1000;
+
+        var sec = now.getUTCSeconds() +
+                  now.getUTCMilliseconds() / 1000;
+
         var min = now.getUTCMinutes() + sec / 60;
         var hour = (now.getUTCHours() % 12) + min / 60;
 
         function hand(value60, length, tail, width, color) {
             var angle = value60 * Math.PI * 2 / 60 - Math.PI / 2;
+
             line(
                 cx - Math.cos(angle) * tail,
                 cy - Math.sin(angle) * tail,
                 cx + Math.cos(angle) * length,
                 cy + Math.sin(angle) * length,
-                width, color
+                width,
+                color
             );
         }
 
@@ -139,29 +173,97 @@ canvas {
         ctx.fill();
     }
 
+    function gregorianToJalali(gy, gm, gd) {
+        var gdm = [
+            0, 31, 59, 90, 120, 151,
+            181, 212, 243, 273, 304, 334
+        ];
+
+        var jy = gy > 1600 ? 979 : 0;
+        gy -= gy > 1600 ? 1600 : 621;
+
+        var gy2 = gm > 2 ? gy + 1 : gy;
+
+        var days =
+            365 * gy +
+            Math.floor((gy2 + 3) / 4) -
+            Math.floor((gy2 + 99) / 100) +
+            Math.floor((gy2 + 399) / 400) -
+            80 + gd + gdm[gm - 1];
+
+        jy += 33 * Math.floor(days / 12053);
+        days %= 12053;
+
+        jy += 4 * Math.floor(days / 1461);
+        days %= 1461;
+
+        if (days > 365) {
+            jy += Math.floor((days - 1) / 365);
+            days = (days - 1) % 365;
+        }
+
+        var jm, jd;
+
+        if (days < 186) {
+            jm = 1 + Math.floor(days / 31);
+            jd = 1 + (days % 31);
+        } else {
+            jm = 7 + Math.floor((days - 186) / 30);
+            jd = 1 + ((days - 186) % 30);
+        }
+
+        return {
+            year: jy,
+            month: jm,
+            day: jd
+        };
+    }
+
     function drawCenterInfo(now) {
-        var days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+        var days = [
+            "sun", "mon", "tue", "wed",
+            "thu", "fri", "sat"
+        ];
+
+        var months = [
+            "فروردین", "اردیبهشت", "خرداد",
+            "تیر", "مرداد", "شهریور",
+            "مهر", "آبان", "آذر",
+            "دی", "بهمن", "اسفند"
+        ];
+
         var h = now.getUTCHours();
         var m = now.getUTCMinutes();
         var suffix = h >= 12 ? "PM" : "AM";
         var displayH = h % 12 || 12;
         var mm = m < 10 ? "0" + m : "" + m;
 
+        var jalali = gregorianToJalali(
+            now.getUTCFullYear(),
+            now.getUTCMonth() + 1,
+            now.getUTCDate()
+        );
+
+        var dateText = jalali.day + " " + months[jalali.month - 1];
+        var weekday = days[now.getUTCDay()];
+
         ctx.textBaseline = "middle";
         ctx.textAlign = "left";
 
-        /* Digital clock — no extra icon */
-        ctx.font = "43px Arial, Helvetica, sans-serif";
+        /* Digital clock */
+        ctx.font = '800 43px "Pinar", Arial, sans-serif';
         ctx.fillStyle = "#f2f2f2";
         ctx.fillText(displayH + ":" + mm + suffix, 610, 495);
 
-        ctx.font = "700 43px Arial, Helvetica, sans-serif";
+        /* Weekday — blue and bold */
+        ctx.font = '800 34px "Pinar", Arial, sans-serif';
         ctx.fillStyle = "#55aaff";
-        ctx.fillText(days[now.getUTCDay()], 1260, 495);
+        ctx.fillText(weekday, 1210, 495);
 
-        ctx.font = "43px Arial, Helvetica, sans-serif";
+        /* Persian date — white, with a little extra spacing */
+        ctx.font = '800 36px "Pinar", Tahoma, sans-serif';
         ctx.fillStyle = "#f2f2f2";
-        ctx.fillText("" + now.getUTCDate(), 1378, 495);
+        ctx.fillText(dateText, 1310, 495);
     }
 
     function render() {
@@ -176,6 +278,7 @@ canvas {
         ctx.scale(scale, scale);
 
         var now = getTehranNow();
+
         drawHands(now);
         drawCenterInfo(now);
 
@@ -183,11 +286,13 @@ canvas {
 
         var raf = window.requestAnimationFrame ||
                   window.webkitRequestAnimationFrame;
+
         if (raf) raf(render);
         else window.setTimeout(render, 33);
     }
 
     window.addEventListener("resize", resize, false);
+
     resize();
     syncTime();
     window.setInterval(syncTime, 60000);
@@ -195,11 +300,15 @@ canvas {
 
     document.addEventListener("dblclick", function () {
         var el = document.documentElement;
+
         var fn = el.requestFullscreen ||
                  el.webkitRequestFullscreen ||
                  el.msRequestFullscreen;
+
         if (fn) {
-            try { fn.call(el); } catch (e) {}
+            try {
+                fn.call(el);
+            } catch (e) {}
         }
     }, false);
 }());
